@@ -41,7 +41,7 @@ def main(argv):
 		save_text('word-level language model', save_dir, 'info')
 
 	elif argv[0] == 'pos':
-		lm = POSWordLM(sess, 'lm', word_vocab_size)
+		lm = POSWordLM(sess, 'lm', word_vocab_size, pos_vocab_size)
 		save_text('word-level+pos language model', save_dir, 'info')
 	else:
 		print('Invalid specification for model. Use \'lm\' or \'pos\'')
@@ -97,7 +97,7 @@ def main(argv):
 			word_seed, pos_seed = tb.get_test_batch(1, 5)
 			word_probs, pos_probs = lm.run(word_seed, 300)
 			generated_text = tb.one_hots_to_words(word_probs)
-			generated_syntax = tb.one_hots_to_pos(pos_probs)
+			generated_syntax = tb.one_hots_to_poses(pos_probs)
 			print(generated_text)
 			if len(generated_syntax) > 0:
 				save_text(str(num_steps) + ":", save_dir, 'lmgensyntax')
