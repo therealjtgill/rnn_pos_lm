@@ -109,7 +109,7 @@ class WordLM(object):
 		layer_out = tf.tanh(local_field)
 		return layer_out
 
-	def train(self, word_ins, _, word_outs, _, learning_rate):
+	def train(self, word_ins, pos_ins, word_outs, pos_outs, learning_rate):
 
 		dt = tf.float32
 		batch_size = word_ins.shape[0]
@@ -135,7 +135,7 @@ class WordLM(object):
 
 		return loss
 
-	def validate(self, word_ins, _, word_outs, _):
+	def validate(self, word_ins, pos_ins, word_outs, pos_outs):
 
 		dt = tf.float32
 		batch_size = word_ins.shape[0]
