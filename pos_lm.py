@@ -122,11 +122,12 @@ class POSWordLM(object):
 			joint_target_flat = self.feed_target_joint(self.feed_in_word,
 				self.feed_in_pos)
 
-			self.cross_entropy_ = tf.reduce_mean(self.cross_entropy(
-				joint_target_flat, joint_predicted_flat))
+			self.cross_entropy_ = self.cross_entropy(
+				joint_target_flat, joint_predicted_flat)
+			self.loss = tf.reduce_mean(self.cross_entropy_)
 
 			self.train_op = tf.train.RMSPropOptimizer(
-				learning_rate=lr).minimize(self.cross_entropy_)
+				learning_rate=lr).minimize(self.loss)
 
 			self.perplexity = tf.exp(self.cross_entropy_)
 
