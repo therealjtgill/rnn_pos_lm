@@ -17,8 +17,13 @@ class POSWordLM(object):
 		self.VP = pos_vocab_size
 		word_embed = np.load('word_embedding.npz')
 		pos_embed = np.load('pos_embedding.npz')
+		#print(type(pos_embed))
 
-		pos_word_cond = np.load('firstordercals.npz')
+		pos_word_cond = np.load('firstordercalcs.npz', encoding='ASCII')
+		#thing = pos_word_cond['arr_0']
+		#print(type(thing))
+		#print(thing.item()['pwcond'])
+		
 
 		VW = word_vocab_size
 		VP = pos_vocab_size
@@ -109,16 +114,16 @@ class POSWordLM(object):
 				tf.nn.sigmoid_cross_entropy_with_logits(
 					logits=word_logits_flat, labels=feed_out_word_flat))
 			self.word_prob = tf.nn.softmax(word_logits)
-			pw_cond = tf.constant(pos_word_cond['arr_0'])
+			pw_cond = tf.constant(pos_word_cond['arr_0'].item()['pwcond'])
 
 			joint_predicted_flat = self.joint_estimation(pw_cond,
 				self.pos_prob, self.word_prob)
 
-			joint_target_flat = self.feed_target_join(self.feed_in_word,
+			joint_target_flat = self.feed_target_joint(self.feed_in_word,
 				self.feed_in_pos)
 
 			self.cross_entropy_ = tf.reduce_mean(self.cross_entropy(
-				joint_predicted_flat, joint_target_flat))
+				joint_target_flat, joint_predicted_flat))
 
 			self.train_op = tf.train.RMSPropOptimizer(
 				learning_rate=lr).minimize(self.cross_entropy_)
@@ -141,6 +146,10 @@ class POSWordLM(object):
 		batch_size = tf.shape(self.feed_in_word)[0]
 		seq_length = tf.shape(self.feed_in_word)[1]
 
+		pw_cond = tf.cast(pw_cond, tf.float32)
+		p_prob = tf.cast(p_prob, tf.float32)
+		w_prob = tf.cast(w_prob, tf.float32)
+
 		pw_cond_ = tf.expand_dims(pw_cond, axis=0)
 		pw_cond_exp = tf.expand_dims(pw_cond_, axis=0)
 
@@ -149,7 +158,7 @@ class POSWordLM(object):
 
 		joint_ = w_prob_exp*(pw_cond_exp + p_prob_exp)
 
-		joint = normalize_estimate(joint_)
+		joint = self.normalize_estimate(joint_)
 
 		joint_flat = tf.reshape(joint, 
 			[batch_size*seq_length, self.VP*self.VW])
