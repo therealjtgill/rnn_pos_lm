@@ -3,8 +3,6 @@ import numpy as np
 import tensorflow as tf
 
 from tensorflow.contrib.rnn import BasicLSTMCell, MultiRNNCell, LSTMStateTuple
-from corpus_gen import *
-from utils import *
 
 class POSWordLM(object):
 
@@ -15,8 +13,12 @@ class POSWordLM(object):
 		self.num_lstm_units = num_lstm_units
 		self.word_vocab_size = word_vocab_size
 		self.pos_vocab_size = pos_vocab_size
+		self.VW = word_vocab_size
+		self.VP = pos_vocab_size
 		word_embed = np.load('word_embedding.npz')
 		pos_embed = np.load('pos_embedding.npz')
+
+		pos_word_cond = np.load('firstordercals.npz')
 
 		VW = word_vocab_size
 		VP = pos_vocab_size
@@ -39,6 +41,8 @@ class POSWordLM(object):
 			self.learning_rate = tf.placeholder(dtype=dt,
 				shape=[])
 
+			batch_size = tf.shape(self.feed_in_word)[0]
+			seq_length = tf.shape(self.feed_in_word)[1]
 			lr = self.learning_rate
 
 			self.lstm_states = []
@@ -50,9 +54,6 @@ class POSWordLM(object):
 				
 			rnn_tuple_states = tuple([LSTMStateTuple(r[0], r[1]) \
 				for r in self.lstm_states])
-
-			batch_size = tf.shape(self.feed_in_word)[0]
-			seq_length = tf.shape(self.feed_in_word)[1]
 
 			weight_word = tf.constant(word_embed['arr_0'])
 			weight_pos = tf.constant(pos_embed['arr_0'])
@@ -97,20 +98,75 @@ class POSWordLM(object):
 			word_logits_flat = tf.reshape(word_logits, [-1, VW])
 			pos_logits_flat = tf.reshape(pos_logits, [-1, VP])
 
-			word_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-				logits=word_logits_flat, labels=feed_out_word_flat))
-			pos_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-				logits=pos_logits_flat, labels=feed_out_pos_flat))
-			self.loss = word_loss*pos_loss
-
-			self.train_op = tf.train.RMSPropOptimizer(
-				learning_rate=lr).minimize(self.loss)
+			#word_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
+			#	logits=word_logits_flat, labels=feed_out_word_flat))
+			#pos_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
+			#	logits=pos_logits_flat, labels=feed_out_pos_flat))
+			#self.loss = word_loss*pos_loss
 
 			self.pos_prob = tf.nn.softmax(pos_logits)
 			self.word_loss = tf.reduce_mean(
 				tf.nn.sigmoid_cross_entropy_with_logits(
 					logits=word_logits_flat, labels=feed_out_word_flat))
 			self.word_prob = tf.nn.softmax(word_logits)
+			pw_cond = tf.constant(pos_word_cond['arr_0'])
+
+			joint_predicted_flat = self.joint_estimation(pw_cond,
+				self.pos_prob, self.word_prob)
+
+			joint_target_flat = self.feed_target_join(self.feed_in_word,
+				self.feed_in_pos)
+
+			self.cross_entropy_ = tf.reduce_mean(self.cross_entropy(
+				joint_predicted_flat, joint_target_flat))
+
+			self.train_op = tf.train.RMSPropOptimizer(
+				learning_rate=lr).minimize(self.cross_entropy_)
+
+			self.perplexity = tf.exp(self.cross_entropy_)
+
+	def cross_entropy(self, P, Q):
+		xent = tf.reduce_sum(P*tf.log(Q + 1e-12), axis=-1)
+		return xent
+
+	def normalize_estimate(self, tensor):
+		mean_ = tf.reduce_mean(tensor, axis=-1, keep_dims=True)
+		mean = tf.reduce_mean(tensor, axis=-2, keep_dims=True)
+
+		normalized = tf.divide(tensor, mean)
+
+		return normalized
+
+	def joint_estimation(self, pw_cond, p_prob, w_prob):
+		batch_size = tf.shape(self.feed_in_word)[0]
+		seq_length = tf.shape(self.feed_in_word)[1]
+
+		pw_cond_ = tf.expand_dims(pw_cond, axis=0)
+		pw_cond_exp = tf.expand_dims(pw_cond_, axis=0)
+
+		p_prob_exp = tf.expand_dims(p_prob, axis=2)
+		w_prob_exp = tf.expand_dims(w_prob, axis=3)
+
+		joint_ = w_prob_exp*(pw_cond_exp + p_prob_exp)
+
+		joint = normalize_estimate(joint_)
+
+		joint_flat = tf.reshape(joint, 
+			[batch_size*seq_length, self.VP*self.VW])
+		return joint
+
+	def feed_target_joint(self, word, pos):
+		batch_size = tf.shape(self.feed_in_word)[0]
+		seq_length = tf.shape(self.feed_in_word)[1]
+
+		word_ = tf.expand_dims(word, axis=-1)
+		pos_ = tf.expand_dims(pos, axis=-1)
+
+		target_joint = tf.matmul(word_, tf.transpose(pos_, perm=[0, 1, 3, 2]))
+
+		target_joint_flat = tf.reshape(target_joint,
+			[batch_size*seq_length, self.VP*self.VW])
+		return target_joint
 
 	def expand_and_tile(self, tensor, expand_axis, tile_pattern):
 		tensor_expanded = tf.expand_dims(tensor, axis=expand_axis)
@@ -153,7 +209,10 @@ class POSWordLM(object):
 
 	def validate(self, word_ins, pos_ins, word_outs, pos_outs):
 
-		zero_states = self.session.run(self.zero_states)
+		dt = tf.float32
+		batch_size = word_ins.shape[0]
+		seq_length = word_ins.shape[1]
+		zero_states = self.session.run(self.zero_states(batch_size, dtype=dt))
 
 		feeds = {
 			self.feed_in_word:word_ins,
@@ -166,9 +225,10 @@ class POSWordLM(object):
 			feeds[self.lstm_states[i][0]] = zero_states[i][0]
 			feeds[self.lstm_states[i][1]] = zero_states[i][1]
 
-		fetches = [self.loss]
+		fetches = [self.loss, self.cross_entropy_, self.perplexity]
 
-		loss = self.session.run(fetches, feed_dict=feeds)
+		loss, cross_entropy, perplexity = \
+			self.session.run(fetches, feed_dict=feeds)
 
 		return loss
 
@@ -228,11 +288,10 @@ class POSWordLM(object):
 
 	def set_saver(self, saver):
 		self.saver = saver
-
+'''
 def decrease_lr(loss, threshold, factor, lr):
 	if len(loss) <= 1:
 		rate = lr
-
 	else:
 		dp = (loss[-2] - loss[-1])/loss[-2]
 		if dp < threshold:
@@ -287,3 +346,5 @@ def main():
 
 if __name__ == "__main__":
 	main()
+
+'''

@@ -3,10 +3,8 @@ import numpy as np
 import tensorflow as tf
 
 from tensorflow.contrib.rnn import BasicLSTMCell, MultiRNNCell, LSTMStateTuple
-from corpus_gen import *
-from utils import *
 
-class POSWordLM(object):
+class WordLM(object):
 
 	def __init__(self, session, scope_name, word_vocab_size,
 		num_lstm_layers=2, num_lstm_units=256):
@@ -80,19 +78,24 @@ class POSWordLM(object):
 			#self.loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
 			#	logits=logits_flat, labels=feed_out_flat))
 			
-			word_logits = tf.reshape(logits_flat, 
+			self.word_logits = tf.reshape(logits_flat, 
 				[batch_size, seq_length, VW])
 			#pos_logits, word_logits = tf.split(logits, [VP, VW], axis=2)
-			word_logits_flat = tf.reshape(word_logits, [-1, VW])
+			word_logits_flat = tf.reshape(self.word_logits, [-1, VW])
 
-			word_loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
-				logits=word_logits_flat, labels=feed_out_flat))
-			self.loss = word_loss
+			self.cross_entropy = tf.nn.softmax_cross_entropy_with_logits(
+				logits=word_logits_flat, labels=feed_out_flat)
+			self.loss = tf.reduce_mean(self.cross_entropy)
+
+			#sum_loss = tf.reduce_sum(self.cross_entropy, axis=-1)
+			#self.loss = tf.reduce_mean(sum_loss)
 
 			self.train_op = tf.train.RMSPropOptimizer(
 				learning_rate=lr).minimize(self.loss)
 
-			self.word_prob = tf.nn.softmax(word_logits)
+			self.word_prob = tf.nn.softmax(self.word_logits)
+
+			self.perplexity = tf.exp(self.loss)
 
 	def expand_and_tile(self, tensor, expand_axis, tile_pattern):
 		tensor_expanded = tf.expand_dims(tensor, axis=expand_axis)
@@ -128,12 +131,16 @@ class POSWordLM(object):
 		fetches = [self.loss, self.train_op]
 
 		loss, _ = self.session.run(fetches, feed_dict=feeds)
+		#print('training loss:', loss)
 
 		return loss
 
-	def validate(self, word_ins, word_outs, pos_outs):
+	def validate(self, word_ins, word_outs):
 
-		zero_states = self.session.run(self.zero_states)
+		dt = tf.float32
+		batch_size = word_ins.shape[0]
+		seq_length = word_ins.shape[1]
+		zero_states = self.session.run(self.zero_states(batch_size, dtype=dt))
 
 		feeds = {
 			self.feed_in_word:word_ins,
@@ -144,9 +151,17 @@ class POSWordLM(object):
 			feeds[self.lstm_states[i][0]] = zero_states[i][0]
 			feeds[self.lstm_states[i][1]] = zero_states[i][1]
 
-		fetches = [self.loss]
+		fetches = [self.loss, self.cross_entropy, self.perplexity]
 
-		loss = self.session.run(fetches, feed_dict=feeds)
+		loss, cross_entropy, perplexity = \
+			self.session.run(fetches, feed_dict=feeds)
+
+		#print('cross entropy shape:', cross_entropy.shape)
+		#print(cross_entropy)
+		#print('sum cross entropy:', np.sum(cross_entropy))
+		#print(np.sum(cross_entropy)/(batch_size*seq_length))
+		#print('internal perplexity calc:', perplexity)
+		#print('reported loss:', loss)
 
 		return loss
 
@@ -202,6 +217,7 @@ class POSWordLM(object):
 	def set_saver(self, saver):
 		self.saver = saver
 
+'''
 def decrease_lr(loss, threshold, factor, lr):
 	if len(loss) <= 1:
 		rate = lr
@@ -221,40 +237,65 @@ def main():
 	pos_vocab_size = tb.pos_vocab_size
 	batch_size = 32
 	seq_length = 50
-	sample_step = 200
+	sample_step = 400
 	halving_threshold = 0.003
-	max_halvings = 15
+	max_halvings = 5
 	num_halvings = 0
-	max_steps = 50000
+	max_steps = 10000
 	num_steps = 0
 	learning_rate = 0.01
 	
 	sess = tf.Session()
-	lm = POSWordLM(sess, 'lm', word_vocab_size)
+	lm = WordLM(sess, 'lm', word_vocab_size)
 	sess.run(tf.global_variables_initializer())
 
-	loss = []
+	test_seq_loss = []
+	perplexity = []
 	while num_steps < max_steps and num_halvings < max_halvings:
-		print(num_steps)
 		train_pieces = tb.get_train_batch(batch_size, seq_length)
 		word_in, pos_in, word_target, pos_target = train_pieces
-		loss.append(lm.train(word_in, word_target, learning_rate))
+		train_loss = lm.train(word_in, word_target, learning_rate)
 
-		if (num_steps % sample_step == 0): #and num_steps > 0:
-			#avg_loss = sum(loss)/100
-			perplexity = np.exp(loss)
-			avg_perplexity = sum(perplexity)/100
-			print('average perplexity:', avg_perplexity)
-			new_lr = decrease_lr(loss, halving_threshold,
+		if num_steps % 20 == 0:
+			print(num_steps)
+			print('training loss:', train_loss)
+
+		if (num_steps % 200 == 0) and num_steps > 0:
+			validation_pieces = tb.get_validation_batch(32, 50)
+			word_in, pos_in, word_target, pos_target = validation_pieces
+			test_seq_loss.append(lm.validate(word_in, word_target))
+			perplexity.append(np.exp(test_seq_loss[-1]))
+			train_pieces = tb.get_train_batch(batch_size, seq_length)
+			word_in, pos_in, word_target, pos_target = train_pieces
+
+			train_perp = np.exp(lm.validate(word_in, word_target))
+
+			print('perplexity of validation sequence:', perplexity[-1])
+			print('perplexity of training sequence:', train_perp)
+			save_text(str(perplexity[-1]) + "," + str(num_steps),
+				save_dir, 'lmperplexity')
+			save_text(str(train_perp) + "," + str(num_steps),
+				save_dir, 'lmtrainperplexity')
+			loss = []
+
+		if (num_steps % sample_step == 0) and num_steps > 0:
+			
+			new_lr = decrease_lr(perplexity, halving_threshold,
 				0.5, learning_rate)
 			if new_lr != learning_rate:
 				learning_rate = new_lr
 				num_halvings +=1
+				print('\tlearning rate halved!')
+				save_text(str(learning_rate) + "," + str(num_steps),
+					save_dir, 'halvings')
 
+			print('\tnumber of learning rate halvings:', num_halvings)
 			word_seed, pos_seed = tb.get_test_batch(1, 5)
 			print(tb.one_hots_to_words(lm.run(word_seed)[0]))
-			loss = []
+			
 		num_steps += 1
 
 if __name__ == "__main__":
 	main()
+
+'''
