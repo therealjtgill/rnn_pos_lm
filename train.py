@@ -41,7 +41,7 @@ def main(argv):
 		save_text('word-level language model', save_dir, 'info')
 
 	elif argv[0] == 'pos':
-		lm = WordLM(sess, 'lm', word_vocab_size)
+		lm = POSWordLM(sess, 'lm', word_vocab_size)
 		save_text('word-level+pos language model', save_dir, 'info')
 	else:
 		print('Invalid specification for model. Use \'lm\' or \'pos\'')
