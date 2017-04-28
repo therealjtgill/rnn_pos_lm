@@ -54,7 +54,8 @@ def main(argv):
 	while num_steps < max_steps and num_halvings < max_halvings:
 		train_pieces = tb.get_train_batch(batch_size, seq_length)
 		word_in, pos_in, word_target, pos_target = train_pieces
-		train_loss = lm.train(word_in, word_target, learning_rate)
+		train_loss = lm.train(word_in, pos_in, word_target,
+			pos_target, learning_rate)
 
 		if num_steps % 20 == 0:
 			print(num_steps)
@@ -63,12 +64,14 @@ def main(argv):
 		if (num_steps % 200 == 0) and num_steps > 0:
 			validation_pieces = tb.get_validation_batch(32, 50)
 			word_in, pos_in, word_target, pos_target = validation_pieces
-			test_seq_loss.append(lm.validate(word_in, word_target))
+			test_seq_loss.append(lm.validate(word_in, pos_in,
+				word_target, pos_target))
 			perplexity.append(np.exp(test_seq_loss[-1]))
 
 			train_pieces = tb.get_train_batch(batch_size, seq_length)
 			word_in, pos_in, word_target, pos_target = train_pieces
-			train_perp = np.exp(lm.validate(word_in, word_target))
+			train_perp = np.exp(lm.validate(word_in, pos_in,
+				word_target, pos_target))
 
 			print('perplexity of validation sequence:', perplexity[-1])
 			print('perplexity of training sequence:', train_perp)
@@ -81,8 +84,8 @@ def main(argv):
 		if (num_steps % sample_step == 0) and num_steps > 0:
 			validation_pieces = tb.get_validation_batch(32, 50)
 			word_in, pos_in, word_target, pos_target = validation_pieces
-			test_seq_loss.append(lm.validate(word_in, word_target))
-			vperp.append(np.exp(test_seq_loss[-1]))
+			vloss = lm.validate(word_in, pos_in, word_target, pos_target)
+			vperp.append(np.exp(vloss))
 
 			new_lr = decrease_lr(vperp, halving_threshold,
 				0.5, learning_rate)
@@ -95,7 +98,7 @@ def main(argv):
 
 			print('\tnumber of learning rate halvings:', num_halvings)
 			word_seed, pos_seed = tb.get_test_batch(1, 5)
-			word_probs, pos_probs = lm.run(word_seed, 300)
+			word_probs, pos_probs = lm.run(word_seed, pos_seed, 300)
 			generated_text = tb.one_hots_to_words(word_probs)
 			generated_syntax = tb.one_hots_to_poses(pos_probs)
 			print(generated_text)
