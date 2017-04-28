@@ -25,8 +25,7 @@ def main(argv):
 	tb = corpus(10000)
 	word_vocab_size = tb.word_vocab_size
 	pos_vocab_size = tb.pos_vocab_size
-	batch_size = 32
-	seq_length = 50
+	
 	sample_step = 400
 	halving_threshold = 0.003
 	max_halvings = 5
@@ -34,19 +33,34 @@ def main(argv):
 	max_steps = 10000
 	num_steps = 0
 	learning_rate = 0.01
+	num_lstm_layers = 2
+	num_lstm_nodes = 256
 	
 	sess = tf.Session()
 	if argv[0] == 'lm':
-		lm = WordLM(sess, 'lm', word_vocab_size)
+		lm = WordLM(sess, 'lm', word_vocab_size,
+			num_lstm_layers, num_lstm_nodes)
 		save_text('word-level language model', save_dir, 'info')
-
+		batch_size = 16
+		seq_length = 25
 	elif argv[0] == 'pos':
-		lm = POSWordLM(sess, 'lm', word_vocab_size, pos_vocab_size)
+		lm = POSWordLM(sess, 'lm', word_vocab_size, pos_vocab_size,
+			 num_lstm_layers, num_lstm_nodes)
 		save_text('word-level+pos language model', save_dir, 'info')
+		save_text('pos vocab size:', + str(pos_vocab_size), save_dir, 'info')
+		batch_size = 16
+		seq_length = 25
 	else:
 		print('Invalid specification for model. Use \'lm\' or \'pos\'')
 		sys.exit(1)
 	sess.run(tf.global_variables_initializer())
+	save_text('initial learning rate:' + str(learning_rate),
+			save_dir, 'info')
+	save_text('batch size:' + str(batch_size), save_dir, 'info')
+	save_text('sequence length:' + str(seq_length), save_dir, 'info')
+	save_text('num lstm layers:' + str(num_lstm_layers), save_dir, 'info')
+	save_text('num lstm nodes:' + str(num_lstm_nodes), save_dir, 'info')
+	save_text('word vocab size:', + str(word_vocab_size))
 
 	test_seq_loss = []
 	perplexity = []
@@ -62,7 +76,7 @@ def main(argv):
 			print('training loss:', train_loss)
 
 		if (num_steps % 200 == 0) and num_steps > 0:
-			validation_pieces = tb.get_validation_batch(32, 50)
+			validation_pieces = tb.get_validation_batch(batch_size, seq_length)
 			word_in, pos_in, word_target, pos_target = validation_pieces
 			test_seq_loss.append(lm.validate(word_in, pos_in,
 				word_target, pos_target))
@@ -82,7 +96,7 @@ def main(argv):
 			loss = []
 
 		if (num_steps % sample_step == 0) and num_steps > 0:
-			validation_pieces = tb.get_validation_batch(32, 50)
+			validation_pieces = tb.get_validation_batch(batch_size, seq_length)
 			word_in, pos_in, word_target, pos_target = validation_pieces
 			vloss = lm.validate(word_in, pos_in, word_target, pos_target)
 			vperp.append(np.exp(vloss))
