@@ -95,8 +95,9 @@ def main(argv):
 
 			print('\tnumber of learning rate halvings:', num_halvings)
 			word_seed, pos_seed = tb.get_test_batch(1, 5)
-			generated_text, generated_syntax = \
-				tb.one_hots_to_words(lm.run(word_seed, 300))
+			word_probs, pos_probs = lm.run(word_seed, 300)
+			generated_text = tb.one_hots_to_words(word_probs)
+			generated_syntax = tb.one_hots_to_pos(pos_probs)
 			print(generated_text)
 			if len(generated_syntax) > 0:
 				save_text(str(num_steps) + ":", save_dir, 'lmgensyntax')
