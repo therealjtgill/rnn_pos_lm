@@ -1,0 +1,3 @@
+word-level+pos language model
+using static learning rate of 0.001 for 50k training rounds
+compare this with the mikolov results

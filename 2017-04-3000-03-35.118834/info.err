@@ -1,0 +1,3 @@
+word-level+pos language model
+using mikolov halving scheme, with five max halvings
+halvings occur after every 400 training rounds
