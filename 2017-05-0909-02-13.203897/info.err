@@ -1,0 +1,3 @@
+word-level+pos language model
+constant learning rate 0.001
+outputting the perplexity of the word-only conditional probability
