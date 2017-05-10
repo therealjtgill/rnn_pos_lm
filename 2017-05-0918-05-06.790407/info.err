@@ -1,0 +1,8 @@
+word-level language model
+initial learning rate:0.01
+batch size:16
+sequence length:25
+num lstm layers:2
+num lstm nodes:256
+word vocab size:10000
+using learning rate halving
